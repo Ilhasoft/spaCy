@@ -1,8 +1,7 @@
 # coding: utf8
 from __future__ import unicode_literals
 
-from ...symbols import LEMMA
-from ...deprecated import PRON_LEMMA
+from ...symbols import LEMMA, PRON_LEMMA
 
 
 MORPH_RULES = {
@@ -59,7 +58,8 @@ MORPH_RULES = {
 
     "VBP": {
         "are":          {LEMMA: "be", "VerbForm": "Fin", "Tense": "Pres", "Mood": "Ind"},
-        "'re":          {LEMMA: "be", "VerbForm": "Fin", "Tense": "Pres", "Mood": "Ind"}
+        "'re":          {LEMMA: "be", "VerbForm": "Fin", "Tense": "Pres", "Mood": "Ind"},
+        "am":           {LEMMA: "be", "VerbForm": "Fin", "Person": "One", "Tense": "Pres", "Mood": "Ind"},
     },
 
     "VBD": {

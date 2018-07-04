@@ -2,17 +2,18 @@
 # coding: utf-8
 from __future__ import unicode_literals
 
-from cpython.ref cimport PyObject, Py_INCREF, Py_XDECREF
+from cpython.ref cimport Py_INCREF
 from cymem.cymem cimport Pool
 from thinc.typedefs cimport weight_t
-from collections import defaultdict, OrderedDict
+from collections import OrderedDict
 import ujson
 
-from .. import util
 from ..structs cimport TokenC
 from .stateclass cimport StateClass
-from ..attrs cimport TAG, HEAD, DEP, ENT_TYPE, ENT_IOB
 from ..typedefs cimport attr_t
+from ..compat import json_dumps
+from ..errors import Errors
+from .. import util
 
 
 cdef weight_t MIN_SCORE = -90000
@@ -23,8 +24,7 @@ class OracleError(Exception):
 
 
 cdef void* _init_state(Pool mem, int length, void* tokens) except NULL:
-    cdef StateClass st = StateClass.init(<const TokenC*>tokens, length)
-    Py_INCREF(st)
+    cdef StateC* st = new StateC(<const TokenC*>tokens, length)
     return <void*>st
 
 
@@ -81,10 +81,7 @@ cdef class TransitionSystem:
                     action.do(state.c, action.label)
                     break
             else:
-                print(gold.words)
-                print(gold.ner)
-                print(history)
-                raise ValueError("Could not find gold move")
+                raise ValueError(Errors.E024)
         return history
 
     cdef int initialize_state(self, StateC* state) nogil:
@@ -99,6 +96,9 @@ cdef class TransitionSystem:
     def preprocess_gold(self, GoldParse gold):
         raise NotImplementedError
 
+    def is_gold_parse(self, StateClass state, GoldParse gold):
+        raise NotImplementedError
+
     cdef Transition lookup_transition(self, object name) except *:
         raise NotImplementedError
 
@@ -107,6 +107,8 @@ cdef class TransitionSystem:
 
     def is_valid(self, StateClass stcls, move_name):
         action = self.lookup_transition(move_name)
+        if action.move == 0:
+            return False
         return action.is_valid(stcls.c, action.label)
 
     cdef int set_valid(self, int* is_valid, const StateC* st) nogil:
@@ -126,20 +128,16 @@ cdef class TransitionSystem:
             else:
                 costs[i] = 9000
         if n_gold <= 0:
-            print(gold.words)
-            print(gold.ner)
-            print([gold.c.ner[i].clas for i in range(gold.length)])
-            print([gold.c.ner[i].move for i in range(gold.length)])
-            print([gold.c.ner[i].label for i in range(gold.length)])
-            print("Self labels", [self.c[i].label for i in range(self.n_moves)])
-            raise ValueError(
-                "Could not find a gold-standard action to supervise "
-                "the entity recognizer\n"
-                "The transition system has %d actions." % (self.n_moves))
+            raise ValueError(Errors.E024)
+
+    def get_class_name(self, int clas):
+        act = self.c[clas]
+        return self.move_name(act.move, act.label)
 
     def add_action(self, int action, label_name):
         cdef attr_t label_id
-        if not isinstance(label_name, int):
+        if not isinstance(label_name, int) and \
+           not isinstance(label_name, long):
             label_id = self.strings.add(label_name)
         else:
             label_id = label_name
@@ -152,7 +150,6 @@ cdef class TransitionSystem:
             self._size *= 2
             self.c = <Transition*>self.mem.realloc(self.c, self._size * sizeof(self.c[0]))
         self.c[self.n_moves] = self.init_transition(self.n_moves, action, label_id)
-        assert self.c[self.n_moves].label == label_id
         self.n_moves += 1
         return 1
 
@@ -176,7 +173,7 @@ cdef class TransitionSystem:
                 'name': self.move_name(trans.move, trans.label)
             })
         serializers = {
-            'transitions': lambda: ujson.dumps(transitions),
+            'transitions': lambda: json_dumps(transitions),
             'strings': lambda: self.strings.to_bytes()
         }
         return util.to_bytes(serializers, exclude)

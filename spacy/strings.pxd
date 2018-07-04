@@ -1,5 +1,6 @@
 from libc.stdint cimport int64_t
 from libcpp.vector cimport vector
+from libcpp.set cimport set
 
 from cymem.cymem cimport Pool
 from preshed.maps cimport PreshMap
@@ -21,11 +22,10 @@ ctypedef union Utf8Str:
 
 cdef class StringStore:
     cdef Pool mem
-    cdef bint is_frozen
 
     cdef vector[hash_t] keys
+    cdef set[hash_t] hits
     cdef public PreshMap _map
-    cdef public PreshMap _oov
 
     cdef const Utf8Str* intern_unicode(self, unicode py_string)
     cdef const Utf8Str* _intern_utf8(self, char* utf8_string, int length)

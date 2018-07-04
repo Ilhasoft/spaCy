@@ -1,8 +1,7 @@
 # coding: utf8
 from __future__ import unicode_literals
 
-from ...symbols import ORTH, LEMMA, TAG, NORM, ADP, DET
-from ...deprecated import PRON_LEMMA
+from ...symbols import ORTH, LEMMA, TAG, NORM, ADP, DET, PRON_LEMMA
 
 
 _exc = {
@@ -26,7 +25,7 @@ for exc_data in [
     {ORTH: "Vd.", LEMMA: PRON_LEMMA, NORM: "usted"},
     {ORTH: "Uds.", LEMMA: PRON_LEMMA, NORM: "ustedes"},
     {ORTH: "Vds.", LEMMA: PRON_LEMMA, NORM: "ustedes"}]:
-    _exc[exc_data[ORTH]] = [dict(exc_data)]
+    _exc[exc_data[ORTH]] = [exc_data]
 
 
 # Times
@@ -54,4 +53,4 @@ for orth in [
     _exc[orth] = [{ORTH: orth}]
 
 
-TOKENIZER_EXCEPTIONS = dict(_exc)
+TOKENIZER_EXCEPTIONS = _exc

@@ -2,16 +2,16 @@
 from __future__ import unicode_literals
 
 from ....parts_of_speech import SPACE
+from ....compat import unicode_
 from ...util import get_doc
 
-import six
 import pytest
 
 
 def test_en_tagger_load_morph_exc(en_tokenizer):
     text = "I like his style."
     tags = ['PRP', 'VBP', 'PRP$', 'NN', '.']
-    morph_exc = {'VBP': {'like': {'L': 'luck'}}}
+    morph_exc = {'VBP': {'like': {'lemma': 'luck'}}}
     en_tokenizer.vocab.morphology.load_morph_exceptions(morph_exc)
     tokens = en_tokenizer(text)
     doc = get_doc(tokens.vocab, [t.text for t in tokens], tags=tags)
@@ -24,9 +24,8 @@ def test_tag_names(EN):
     text = "I ate pizzas with anchovies."
     doc = EN(text, disable=['parser'])
     assert type(doc[2].pos) == int
-    assert isinstance(doc[2].pos_, six.text_type)
-    assert type(doc[2].dep) == int
-    assert isinstance(doc[2].dep_, six.text_type)
+    assert isinstance(doc[2].pos_, unicode_)
+    assert isinstance(doc[2].dep_, unicode_)
     assert doc[2].tag_ == u'NNS'
 
 

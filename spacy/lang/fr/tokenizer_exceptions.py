@@ -7,8 +7,7 @@ from ._tokenizer_exceptions_list import FR_BASE_EXCEPTIONS
 from .punctuation import ELISION, HYPHENS
 from ..tokenizer_exceptions import URL_PATTERN
 from ..char_classes import ALPHA_LOWER
-from ...symbols import ORTH, LEMMA, TAG, NORM
-from ...deprecated import PRON_LEMMA
+from ...symbols import ORTH, LEMMA, TAG, NORM, PRON_LEMMA
 
 
 def upper_first_letter(text):
@@ -54,7 +53,7 @@ for exc_data in [
     {LEMMA: "degrés", ORTH: "d°"},
     {LEMMA: "saint", ORTH: "St."},
     {LEMMA: "sainte", ORTH: "Ste."}]:
-    _exc[exc_data[ORTH]] = [dict(exc_data)]
+    _exc[exc_data[ORTH]] = [exc_data]
 
 
 for orth in FR_BASE_EXCEPTIONS + ["etc."]:
@@ -147,5 +146,5 @@ _regular_exp += ["^{prefix}[{elision}][{alpha}][{alpha}{elision}{hyphen}\-]*$".f
 _regular_exp.append(URL_PATTERN)
 
 
-TOKENIZER_EXCEPTIONS = dict(_exc)
+TOKENIZER_EXCEPTIONS = _exc
 TOKEN_MATCH = re.compile('|'.join('(?:{})'.format(m) for m in _regular_exp), re.IGNORECASE).match

@@ -1,8 +1,7 @@
 # coding: utf8
 from __future__ import unicode_literals
 
-from ...symbols import ORTH, LEMMA, TAG, NORM
-from ...deprecated import PRON_LEMMA
+from ...symbols import ORTH, LEMMA, TAG, NORM, PRON_LEMMA
 
 
 _exc = {}
@@ -214,7 +213,8 @@ for verb_data in [
     {ORTH: "could", NORM: "could", TAG: "MD"},
     {ORTH: "might", NORM: "might", TAG: "MD"},
     {ORTH: "must", NORM: "must", TAG: "MD"},
-    {ORTH: "should", NORM: "should", TAG: "MD"}]:
+    {ORTH: "should", NORM: "should", TAG: "MD"},
+    {ORTH: "would", NORM: "would", TAG: "MD"}]:
     verb_data_tc = dict(verb_data)
     verb_data_tc[ORTH] = verb_data_tc[ORTH].title()
     for data in [verb_data, verb_data_tc]:
@@ -232,7 +232,10 @@ for verb_data in [
     {ORTH: "are", LEMMA: "be", NORM: "are", TAG: "VBP", "number": 2},
     {ORTH: "is", LEMMA: "be", NORM: "is", TAG: "VBZ"},
     {ORTH: "was", LEMMA: "be", NORM: "was"},
-    {ORTH: "were", LEMMA: "be", NORM: "were"}]:
+    {ORTH: "were", LEMMA: "be", NORM: "were"},
+    {ORTH: "have", NORM: "have"},
+    {ORTH: "has", LEMMA: "have", NORM: "has"},
+    {ORTH: "dare", NORM: "dare"}]:
     verb_data_tc = dict(verb_data)
     verb_data_tc[ORTH] = verb_data_tc[ORTH].title()
     for data in [verb_data, verb_data_tc]:
@@ -273,7 +276,7 @@ for exc_data in [
     exc_data_apos = dict(exc_data)
     exc_data_apos[ORTH] = "'" + exc_data_apos[ORTH]
     for data in [exc_data, exc_data_apos]:
-        _exc[data[ORTH]] = [dict(data)]
+        _exc[data[ORTH]] = [data]
 
 
 # Times
@@ -383,6 +386,23 @@ for exc_data in [
     {ORTH: "Ma'am", LEMMA: "madam", NORM: "madam"},
     {ORTH: "o'clock", LEMMA: "o'clock", NORM: "o'clock"},
     {ORTH: "O'clock", LEMMA: "o'clock", NORM: "o'clock"},
+    {ORTH: "lovin'", LEMMA: "love", NORM: "loving"},
+    {ORTH: "Lovin'", LEMMA: "love", NORM: "loving"},
+    {ORTH: "lovin", LEMMA: "love", NORM: "loving"},
+    {ORTH: "Lovin", LEMMA: "love", NORM: "loving"},
+    {ORTH: "havin'", LEMMA: "have", NORM: "having"},
+    {ORTH: "Havin'", LEMMA: "have", NORM: "having"},
+    {ORTH: "havin", LEMMA: "have", NORM: "having"},
+    {ORTH: "Havin", LEMMA: "have", NORM: "having"},
+    {ORTH: "doin'", LEMMA: "do", NORM: "doing"},
+    {ORTH: "Doin'", LEMMA: "do", NORM: "doing"},
+    {ORTH: "doin", LEMMA: "do", NORM: "doing"},
+    {ORTH: "Doin", LEMMA: "do", NORM: "doing"},
+    {ORTH: "goin'", LEMMA: "go", NORM: "going"},
+    {ORTH: "Goin'", LEMMA: "go", NORM: "going"},
+    {ORTH: "goin", LEMMA: "go", NORM: "going"},
+    {ORTH: "Goin", LEMMA: "go", NORM: "going"},
+
 
     {ORTH: "Mt.", LEMMA: "Mount", NORM: "Mount"},
     {ORTH: "Ak.", LEMMA: "Alaska", NORM: "Alaska"},
@@ -437,7 +457,7 @@ for exc_data in [
     {ORTH: "Va.", LEMMA: "Virginia", NORM: "Virginia"},
     {ORTH: "Wash.", LEMMA: "Washington", NORM: "Washington"},
     {ORTH: "Wis.", LEMMA: "Wisconsin", NORM: "Wisconsin"}]:
-    _exc[exc_data[ORTH]] = [dict(exc_data)]
+    _exc[exc_data[ORTH]] = [exc_data]
 
 
 for orth in [
@@ -453,4 +473,4 @@ for string in _exclude:
         _exc.pop(string)
 
 
-TOKENIZER_EXCEPTIONS = dict(_exc)
+TOKENIZER_EXCEPTIONS = _exc

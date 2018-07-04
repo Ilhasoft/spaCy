@@ -36,11 +36,11 @@ URL_PATTERN = (
     r"(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))"
     r"|"
     # host name
-    r"(?:(?:[a-z\u00a1-\uffff0-9]-*)*[a-z\u00a1-\uffff0-9]+)"
+    r"(?:(?:[a-z0-9\-]*)?[a-z0-9]+)"
     # domain name
-    r"(?:\.(?:[a-z\u00a1-\uffff0-9]-*)*[a-z\u00a1-\uffff0-9]+)*"
+    r"(?:\.(?:[a-z0-9\-])*[a-z0-9]+)*"
     # TLD identifier
-    r"(?:\.(?:[a-z\u00a1-\uffff]{2,}))"
+    r"(?:\.(?:[a-z]{2,}))"
     r")"
     # port number
     r"(?::\d{2,5})?"
@@ -68,7 +68,7 @@ for exc_data in [
     {ORTH: "\\n", POS: SPACE},
     {ORTH: "\u2014", POS: PUNCT, LEMMA: "--"},
     {ORTH: "\u00a0", POS: SPACE, LEMMA: "  "}]:
-    BASE_EXCEPTIONS[exc_data[ORTH]] = [dict(exc_data)]
+    BASE_EXCEPTIONS[exc_data[ORTH]] = [exc_data]
 
 
 for orth in [

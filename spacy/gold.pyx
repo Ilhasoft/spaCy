@@ -2,16 +2,17 @@
 # coding: utf8
 from __future__ import unicode_literals, print_function
 
-import io
 import re
 import ujson
 import random
 import cytoolz
+import itertools
 
 from .syntax import nonproj
-from .util import ensure_path
-from . import util
 from .tokens import Doc
+from .errors import Errors
+from . import util
+from .util import minibatch
 
 
 def tags_to_entities(tags):
@@ -28,7 +29,8 @@ def tags_to_entities(tags):
         elif tag == '-':
             continue
         elif tag.startswith('I'):
-            assert start is not None, tags[:i]
+            if start is None:
+                raise ValueError(Errors.E067.format(tags=tags[:i]))
             continue
         if tag.startswith('U'):
             entities.append((tag[2:], i, i))
@@ -38,7 +40,7 @@ def tags_to_entities(tags):
             entities.append((tag[2:], start, i))
             start = None
         else:
-            raise Exception(tag)
+            raise ValueError(Errors.E068.format(tag=tag))
     return entities
 
 
@@ -53,7 +55,8 @@ def merge_sents(sents):
         m_deps[3].extend(head + i for head in heads)
         m_deps[4].extend(labels)
         m_deps[5].extend(ner)
-        m_brackets.extend((b['first'] + i, b['last'] + i, b['label']) for b in brackets)
+        m_brackets.extend((b['first'] + i, b['last'] + i, b['label'])
+                          for b in brackets)
         i += len(ids)
     return [(m_deps, m_brackets)]
 
@@ -79,6 +82,8 @@ def align(cand_words, gold_words):
 
 
 punct_re = re.compile(r'\W')
+
+
 def _min_edit_path(cand_words, gold_words):
     cdef:
         Pool mem
@@ -97,9 +102,9 @@ def _min_edit_path(cand_words, gold_words):
     mem = Pool()
     n_cand = len(cand_words)
     n_gold = len(gold_words)
-    # Levenshtein distance, except we need the history, and we may want different
-    # costs.
-    # Mark operations with a string, and score the history using _edit_cost.
+    # Levenshtein distance, except we need the history, and we may want
+    # different costs. Mark operations with a string, and score the history
+    # using _edit_cost.
     previous_row = []
     prev_costs = <int*>mem.alloc(n_gold + 1, sizeof(int))
     curr_costs = <int*>mem.alloc(n_gold + 1, sizeof(int))
@@ -142,19 +147,6 @@ def _min_edit_path(cand_words, gold_words):
     return prev_costs[n_gold], previous_row[-1]
 
 
-def minibatch(items, size=8):
-    '''Iterate over batches of items. `size` may be an iterator,
-    so that batch-size can vary on each step.
-    '''
-    items = iter(items)
-    while True:
-        batch_size = next(size) #if hasattr(size, '__next__') else size
-        batch = list(cytoolz.take(int(batch_size), items))
-        if len(batch) == 0:
-            break
-        yield list(batch)
-
-
 class GoldCorpus(object):
     """An annotated corpus, using the JSON file format. Manages
     annotations for tagging, dependency parsing and NER."""
@@ -163,6 +155,7 @@ class GoldCorpus(object):
 
         train_path (unicode or Path): File or directory of training data.
         dev_path (unicode or Path): File or directory of development data.
+        RETURNS (GoldCorpus): The newly created object.
         """
         self.train_path = util.ensure_path(train_path)
         self.dev_path = util.ensure_path(dev_path)
@@ -188,7 +181,7 @@ class GoldCorpus(object):
             gold_tuples = read_json_file(loc)
             for item in gold_tuples:
                 yield item
-                i += 1
+                i += len(item[1])
                 if self.limit and i >= self.limit:
                     break
 
@@ -208,7 +201,7 @@ class GoldCorpus(object):
         train_tuples = self.train_tuples
         if projectivize:
             train_tuples = nonproj.preprocess_training_data(
-                               self.train_tuples)
+                self.train_tuples, label_freq_cutoff=100)
         random.shuffle(train_tuples)
         gold_docs = self.iter_gold_docs(nlp, train_tuples, gold_preproc,
                                         max_length=max_length,
@@ -217,7 +210,6 @@ class GoldCorpus(object):
 
     def dev_docs(self, nlp, gold_preproc=False):
         gold_docs = self.iter_gold_docs(nlp, self.dev_tuples, gold_preproc)
-        #gold_docs = nlp.preprocess_gold(gold_docs)
         yield from gold_docs
 
     @classmethod
@@ -228,7 +220,6 @@ class GoldCorpus(object):
                 raw_text = None
             else:
                 paragraph_tuples = merge_sents(paragraph_tuples)
-
             docs = cls._make_docs(nlp, raw_text, paragraph_tuples,
                                   gold_preproc, noise_level=noise_level)
             golds = cls._make_golds(docs, paragraph_tuples)
@@ -243,17 +234,22 @@ class GoldCorpus(object):
             raw_text = add_noise(raw_text, noise_level)
             return [nlp.make_doc(raw_text)]
         else:
-            return [Doc(nlp.vocab, words=add_noise(sent_tuples[1], noise_level))
-                for (sent_tuples, brackets) in paragraph_tuples]
+            return [Doc(nlp.vocab,
+                        words=add_noise(sent_tuples[1], noise_level))
+                    for (sent_tuples, brackets) in paragraph_tuples]
 
     @classmethod
     def _make_golds(cls, docs, paragraph_tuples):
-        assert len(docs) == len(paragraph_tuples)
+        if len(docs) != len(paragraph_tuples):
+            raise ValueError(Errors.E070.format(n_docs=len(docs),
+                                                n_annots=len(paragraph_tuples)))
         if len(docs) == 1:
-            return [GoldParse.from_annot_tuples(docs[0], paragraph_tuples[0][0])]
+            return [GoldParse.from_annot_tuples(docs[0],
+                                                paragraph_tuples[0][0])]
         else:
             return [GoldParse.from_annot_tuples(doc, sent_tuples)
-                    for doc, (sent_tuples, brackets) in zip(docs, paragraph_tuples)]
+                    for doc, (sent_tuples, brackets)
+                    in zip(docs, paragraph_tuples)]
 
     @staticmethod
     def walk_corpus(path):
@@ -300,7 +296,7 @@ def _corrupt(c, noise_level):
 
 
 def read_json_file(loc, docs_filter=None, limit=None):
-    loc = ensure_path(loc)
+    loc = util.ensure_path(loc)
     if loc.is_dir():
         for filename in loc.iterdir():
             yield from read_json_file(loc / filename, limit=limit)
@@ -325,16 +321,16 @@ def read_json_file(loc, docs_filter=None, limit=None):
                     for i, token in enumerate(sent['tokens']):
                         words.append(token['orth'])
                         ids.append(i)
-                        tags.append(token.get('tag','-'))
-                        heads.append(token.get('head',0) + i)
-                        labels.append(token.get('dep',''))
+                        tags.append(token.get('tag', '-'))
+                        heads.append(token.get('head', 0) + i)
+                        labels.append(token.get('dep', ''))
                         # Ensure ROOT label is case-insensitive
                         if labels[-1].lower() == 'root':
                             labels[-1] = 'ROOT'
                         ner.append(token.get('ner', '-'))
                     sents.append([
                         [ids, words, tags, heads, labels, ner],
-                         sent.get('brackets', [])])
+                        sent.get('brackets', [])])
                 if sents:
                     yield [paragraph.get('raw', None), sents]
 
@@ -377,21 +373,34 @@ cdef class GoldParse:
     @classmethod
     def from_annot_tuples(cls, doc, annot_tuples, make_projective=False):
         _, words, tags, heads, deps, entities = annot_tuples
-        return cls(doc, words=words, tags=tags, heads=heads, deps=deps, entities=entities,
-                   make_projective=make_projective)
+        return cls(doc, words=words, tags=tags, heads=heads, deps=deps,
+                   entities=entities, make_projective=make_projective)
 
-    def __init__(self, doc, annot_tuples=None, words=None, tags=None, heads=None,
-                 deps=None, entities=None, make_projective=False):
+    def __init__(self, doc, annot_tuples=None, words=None, tags=None,
+                 heads=None, deps=None, entities=None, make_projective=False,
+                 cats=None):
         """Create a GoldParse.
 
         doc (Doc): The document the annotations refer to.
         words (iterable): A sequence of unicode word strings.
         tags (iterable): A sequence of strings, representing tag annotations.
-        heads (iterable): A sequence of integers, representing syntactic head offsets.
-        deps (iterable): A sequence of strings, representing the syntactic relation types.
+        heads (iterable): A sequence of integers, representing syntactic
+            head offsets.
+        deps (iterable): A sequence of strings, representing the syntactic
+            relation types.
         entities (iterable): A sequence of named entity annotations, either as
             BILUO tag strings, or as `(start_char, end_char, label)` tuples,
             representing the entity positions.
+        cats (dict): Labels for text classification. Each key in the dictionary
+            may be a string or an int, or a `(start_char, end_char, label)`
+            tuple, indicating that the label is applied to only part of the
+            document (usually a sentence). Unlike entity annotations, label
+            annotations can overlap, i.e. a single word can be covered by
+            multiple labelled spans. The TextCategorizer component expects
+            true examples of a label to have the value 1.0, and negative
+            examples of a label to have the value 0.0. Labels not in the
+            dictionary are treated as missing - the gradient for those labels
+            will be zero.
         RETURNS (GoldParse): The newly constructed object.
         """
         if words is None:
@@ -399,11 +408,11 @@ cdef class GoldParse:
         if tags is None:
             tags = [None for _ in doc]
         if heads is None:
-            heads = [token.i for token in doc]
+            heads = [None for token in doc]
         if deps is None:
             deps = [None for _ in doc]
         if entities is None:
-            entities = ['-' for _ in doc]
+            entities = [None for _ in doc]
         elif len(entities) == 0:
             entities = ['O' for _ in doc]
         elif not isinstance(entities[0], basestring):
@@ -419,8 +428,10 @@ cdef class GoldParse:
         self.c.heads = <int*>self.mem.alloc(len(doc), sizeof(int))
         self.c.labels = <attr_t*>self.mem.alloc(len(doc), sizeof(attr_t))
         self.c.has_dep = <int*>self.mem.alloc(len(doc), sizeof(int))
+        self.c.sent_start = <int*>self.mem.alloc(len(doc), sizeof(int))
         self.c.ner = <Transition*>self.mem.alloc(len(doc), sizeof(Transition))
 
+        self.cats = {} if cats is None else dict(cats)
         self.words = [None] * len(doc)
         self.tags = [None] * len(doc)
         self.heads = [None] * len(doc)
@@ -453,11 +464,11 @@ cdef class GoldParse:
                 self.ner[i] = entities[gold_i]
 
         cycle = nonproj.contains_cycle(self.heads)
-        if cycle != None:
-            raise Exception("Cycle found: %s" % cycle)
+        if cycle is not None:
+            raise ValueError(Errors.E069.format(cycle=cycle))
 
         if make_projective:
-            proj_heads,_ = nonproj.projectivize(self.heads, self.labels)
+            proj_heads, _ = nonproj.projectivize(self.heads, self.labels)
             self.heads = proj_heads
 
     def __len__(self):
@@ -474,22 +485,25 @@ cdef class GoldParse:
         """
         return not nonproj.is_nonproj_tree(self.heads)
 
+    @property
+    def sent_starts(self):
+        return [self.c.sent_start[i] for i in range(self.length)]
 
-def biluo_tags_from_offsets(doc, entities):
-    """Encode labelled spans into per-token tags, using the Begin/In/Last/Unit/Out
-    scheme (BILUO).
+
+def biluo_tags_from_offsets(doc, entities, missing='O'):
+    """Encode labelled spans into per-token tags, using the
+    Begin/In/Last/Unit/Out scheme (BILUO).
 
     doc (Doc): The document that the entity offsets refer to. The output tags
         will refer to the token boundaries within the document.
-    entities (iterable): A sequence of `(start, end, label)` triples. `start` and
-        `end` should be character-offset integers denoting the slice into the
-        original string.
-
+    entities (iterable): A sequence of `(start, end, label)` triples. `start`
+        and `end` should be character-offset integers denoting the slice into
+        the original string.
     RETURNS (list): A list of unicode strings, describing the tags. Each tag
         string will be of the form either "", "O" or "{action}-{label}", where
         action is one of "B", "I", "L", "U". The string "-" is used where the
-        entity offsets don't align with the tokenization in the `Doc` object. The
-        training algorithm will view these as missing values. "O" denotes a
+        entity offsets don't align with the tokenization in the `Doc` object.
+        The training algorithm will view these as missing values. "O" denotes a
         non-entity token. "B" denotes the beginning of a multi-token entity,
         "I" the inside of an entity of three or more tokens, and "L" the end
         of an entity of two or more tokens. "U" denotes a single-token entity.
@@ -527,8 +541,27 @@ def biluo_tags_from_offsets(doc, entities):
             if i in entity_chars:
                 break
         else:
-            biluo[token.i] = 'O'
+            biluo[token.i] = missing
     return biluo
+
+
+def offsets_from_biluo_tags(doc, tags):
+    """Encode per-token tags following the BILUO scheme into entity offsets.
+
+    doc (Doc): The document that the BILUO tags refer to.
+    entities (iterable): A sequence of BILUO tags with each tag describing one
+        token. Each tags string will be of the form of either "", "O" or
+        "{action}-{label}", where action is one of "B", "I", "L", "U".
+    RETURNS (list): A sequence of `(start, end, label)` triples. `start` and
+        `end` will be character-offset integers denoting the slice into the
+        original string.
+    """
+    token_offsets = tags_to_entities(tags)
+    offsets = []
+    for label, start_idx, end_idx in token_offsets:
+        span = doc[start_idx : end_idx + 1]
+        offsets.append((span.start_char, span.end_char, label))
+    return offsets
 
 
 def is_punct_label(label):

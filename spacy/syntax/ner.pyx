@@ -2,16 +2,15 @@
 from __future__ import unicode_literals
 
 from thinc.typedefs cimport weight_t
+from thinc.extra.search cimport Beam
 from collections import OrderedDict
 
 from .stateclass cimport StateClass
 from ._state cimport StateC
 from .transition_system cimport Transition
 from .transition_system cimport do_func_t
-from ..structs cimport TokenC, Entity
-from ..gold cimport GoldParseC
-from ..gold cimport GoldParse
-from ..attrs cimport ENT_TYPE, ENT_IOB
+from ..gold cimport GoldParseC, GoldParse
+from ..errors import Errors
 
 
 cdef enum:
@@ -66,15 +65,14 @@ cdef class BiluoPushDown(TransitionSystem):
 
     @classmethod
     def get_actions(cls, **kwargs):
-        actions = kwargs.get('actions',
-                    OrderedDict((
-                        (MISSING, ['']),
-                        (BEGIN, []),
-                        (IN, []),
-                        (LAST, []),
-                        (UNIT, []),
-                        (OUT, [''])
-                    )))
+        actions = kwargs.get('actions', OrderedDict((
+            (MISSING, ['']),
+            (BEGIN, []),
+            (IN, []),
+            (LAST, []),
+            (UNIT, []),
+            (OUT, [''])
+        )))
         seen_entities = set()
         for entity_type in kwargs.get('entity_types', []):
             if entity_type in seen_entities:
@@ -87,9 +85,7 @@ cdef class BiluoPushDown(TransitionSystem):
             for (ids, words, tags, heads, labels, biluo), _ in sents:
                 for i, ner_tag in enumerate(biluo):
                     if ner_tag != 'O' and ner_tag != '-':
-                        if ner_tag.count('-') != 1:
-                            raise ValueError(ner_tag)
-                        _, label = ner_tag.split('-')
+                        _, label = ner_tag.split('-', 1)
                         if label not in seen_entities:
                             seen_entities.add(label)
                             for move_str in ('B', 'I', 'L', 'U'):
@@ -110,7 +106,7 @@ cdef class BiluoPushDown(TransitionSystem):
 
     def has_gold(self, GoldParse gold, start=0, end=None):
         end = end or len(gold.ner)
-        if all([tag == '-' for tag in gold.ner[start:end]]):
+        if all([tag in ('-', None) for tag in gold.ner[start:end]]):
             return False
         else:
             return True
@@ -122,11 +118,45 @@ cdef class BiluoPushDown(TransitionSystem):
             gold.c.ner[i] = self.lookup_transition(gold.ner[i])
         return gold
 
+    def get_beam_annot(self, Beam beam):
+        entities = {}
+        probs = beam.probs
+        for i in range(beam.size):
+            state = <StateC*>beam.at(i)
+            if state.is_final():
+                self.finalize_state(state)
+                prob = probs[i]
+                for j in range(state._e_i):
+                    start = state._ents[j].start
+                    end = state._ents[j].end
+                    label = state._ents[j].label
+                    entities.setdefault((start, end, label), 0.0)
+                    entities[(start, end, label)] += prob
+        return entities
+
+    def get_beam_parses(self, Beam beam):
+        parses = []
+        probs = beam.probs
+        for i in range(beam.size):
+            state = <StateC*>beam.at(i)
+            if state.is_final():
+                self.finalize_state(state)
+                prob = probs[i]
+                parse = []
+                for j in range(state._e_i):
+                    start = state._ents[j].start
+                    end = state._ents[j].end
+                    label = state._ents[j].label
+                    parse.append((start, end, self.strings[label]))
+                parses.append((prob, parse))
+        return parses
+
     cdef Transition lookup_transition(self, object name) except *:
         cdef attr_t label
-        if name == '-' or name == None:
-            move_str = 'M'
-            label = 0
+        if name == '-' or name is None:
+            return Transition(clas=0, move=MISSING, label=0, score=0)
+        elif name == '!O':
+            return Transition(clas=0, move=ISNT, label=0, score=0)
         elif '-' in name:
             move_str, label_str = name.split('-', 1)
             # Hacky way to denote 'not this entity'
@@ -144,7 +174,7 @@ cdef class BiluoPushDown(TransitionSystem):
             if self.c[i].move == move and self.c[i].label == label:
                 return self.c[i]
         else:
-            raise KeyError(name)
+            raise KeyError(Errors.E022.format(name=name))
 
     cdef Transition init_transition(self, int clas, int move, attr_t label) except *:
         # TODO: Apparent Cython bug here when we try to use the Transition()
@@ -179,8 +209,30 @@ cdef class BiluoPushDown(TransitionSystem):
             t.do = Out.transition
             t.get_cost = Out.cost
         else:
-            raise Exception(move)
+            raise ValueError(Errors.E019.format(action=move, src='ner'))
         return t
+
+    def add_action(self, int action, label_name):
+        cdef attr_t label_id
+        if not isinstance(label_name, (int, long)):
+            label_id = self.strings.add(label_name)
+        else:
+            label_id = label_name
+        if action == OUT and label_id != 0:
+            return
+        if action == MISSING or action == ISNT:
+            return
+        # Check we're not creating a move we already have, so that this is
+        # idempotent
+        for trans in self.c[:self.n_moves]:
+            if trans.move == action and trans.label == label_id:
+                return 0
+        if self.n_moves >= self._size:
+            self._size *= 2
+            self.c = <Transition*>self.mem.realloc(self.c, self._size * sizeof(self.c[0]))
+        self.c[self.n_moves] = self.init_transition(self.n_moves, action, label_id)
+        self.n_moves += 1
+        return 1
 
     cdef int initialize_state(self, StateC* st) nogil:
         # This is especially necessary when we use limited training data.
@@ -227,7 +279,7 @@ cdef class Begin:
         elif preset_ent_iob == 3 and st.B_(1).ent_iob != 1:
             return False
         # Don't allow entities to extend across sentence boundaries
-        elif st.B_(1).sent_start:
+        elif st.B_(1).sent_start == 1:
             return False
         else:
             return label != 0 and not st.entity_is_open()
@@ -268,12 +320,12 @@ cdef class In:
             return False
         elif preset_ent_iob == 3:
             return False
-        # TODO: Is this quite right?
-        # I think it's supposed to be ensuring the gazetteer matches are maintained
+        # TODO: Is this quite right? I think it's supposed to be ensuring the
+        # gazetteer matches are maintained
         elif st.B_(1).ent_iob != preset_ent_iob:
             return False
         # Don't allow entities to extend across sentence boundaries
-        elif st.B_(1).sent_start:
+        elif st.B_(1).sent_start == 1:
             return False
         return st.entity_is_open() and label != 0 and st.E_(0).ent_type == label
 
@@ -294,10 +346,12 @@ cdef class In:
         if g_act == MISSING:
             return 0
         elif g_act == BEGIN:
-            # I, Gold B --> True (P of bad open entity sunk, R of this entity sunk)
+            # I, Gold B --> True
+            # (P of bad open entity sunk, R of this entity sunk)
             return 0
         elif g_act == IN:
-            # I, Gold I --> True (label forced by prev, if mismatch, P and R both sunk)
+            # I, Gold I --> True
+            # (label forced by prev, if mismatch, P and R both sunk)
             return 0
         elif g_act == LAST:
             # I, Gold L --> True iff this entity sunk and next tag == O
@@ -308,6 +362,9 @@ cdef class In:
         elif g_act == UNIT:
             # I, Gold U --> True iff next tag == O
             return next_act != OUT
+        # Support partial supervision in the form of "not this label"
+        elif g_act == ISNT:
+            return 0
         else:
             return 1
 
@@ -349,6 +406,9 @@ cdef class Last:
             return 0
         elif g_act == UNIT:
             # L, Gold U --> True
+            return 0
+        # Support partial supervision in the form of "not this label"
+        elif g_act == ISNT:
             return 0
         else:
             return 1
@@ -418,7 +478,9 @@ cdef class Out:
         cdef int g_act = gold.ner[s.B(0)].move
         cdef attr_t g_tag = gold.ner[s.B(0)].label
 
-        if g_act == MISSING or g_act == ISNT:
+        if g_act == ISNT and g_tag == 0:
+            return 1
+        elif g_act == MISSING or g_act == ISNT:
             return 0
         elif g_act == BEGIN:
             # O, Gold B --> False
@@ -437,11 +499,3 @@ cdef class Out:
             return 1
         else:
             return 1
-
-
-class OracleError(Exception):
-    pass
-
-
-class UnknownMove(Exception):
-    pass

@@ -4,19 +4,17 @@ from __future__ import unicode_literals, absolute_import
 
 cimport cython
 from libc.string cimport memcpy
-from libc.stdint cimport uint64_t, uint32_t
-from murmurhash.mrmr cimport hash64, hash32
-from preshed.maps cimport map_iter, key_t
+from libcpp.set cimport set
 from libc.stdint cimport uint32_t
+from murmurhash.mrmr cimport hash64, hash32
 import ujson
-import dill
 
 from .symbols import IDS as SYMBOLS_BY_STR
 from .symbols import NAMES as SYMBOLS_BY_INT
-
 from .typedefs cimport hash_t
-from . import util
 from .compat import json_dumps
+from .errors import Errors
+from . import util
 
 
 cpdef hash_t hash_string(unicode string) except 0:
@@ -62,7 +60,6 @@ cdef Utf8Str* _allocate(Pool mem, const unsigned char* chars, uint32_t length) e
         string.p = <unsigned char*>mem.alloc(length + 1, sizeof(unsigned char))
         string.p[0] = length
         memcpy(&string.p[1], chars, length)
-        assert string.s[0] >= sizeof(string.s) or string.s[0] == 0, string.s[0]
         return string
     else:
         i = 0
@@ -72,7 +69,6 @@ cdef Utf8Str* _allocate(Pool mem, const unsigned char* chars, uint32_t length) e
             string.p[i] = 255
         string.p[n_length_bytes-1] = length % 255
         memcpy(&string.p[n_length_bytes], chars, length)
-        assert string.s[0] >= sizeof(string.s) or string.s[0] == 0, string.s[0]
         return string
 
 
@@ -86,8 +82,6 @@ cdef class StringStore:
         """
         self.mem = Pool()
         self._map = PreshMap()
-        self._oov = PreshMap()
-        self.is_frozen = freeze
         if strings is not None:
             for string in strings:
                 self.add(string)
@@ -117,9 +111,10 @@ cdef class StringStore:
             return SYMBOLS_BY_INT[string_or_id]
         else:
             key = string_or_id
+            self.hits.insert(key)
             utf8str = <Utf8Str*>self._map.get(key)
             if utf8str is NULL:
-                raise KeyError(string_or_id)
+                raise KeyError(Errors.E018.format(hash_value=string_or_id))
             else:
                 return decode_Utf8Str(utf8str)
 
@@ -140,8 +135,7 @@ cdef class StringStore:
             key = hash_utf8(string, len(string))
             self._intern_utf8(string, len(string))
         else:
-            raise TypeError(
-                "Can only add unicode or bytes. Got type: %s" % type(string))
+            raise TypeError(Errors.E017.format(value_type=type(string)))
         return key
 
     def __len__(self):
@@ -174,6 +168,7 @@ cdef class StringStore:
         if key < len(SYMBOLS_BY_INT):
             return True
         else:
+            self.hits.insert(key)
             return self._map.get(key) is not NULL
 
     def __iter__(self):
@@ -185,6 +180,7 @@ cdef class StringStore:
         cdef hash_t key
         for i in range(self.keys.size()):
             key = self.keys[i]
+            self.hits.insert(key)
             utf8str = <Utf8Str*>self._map.get(key)
             yield decode_Utf8Str(utf8str)
         # TODO: Iterate OOV here?
@@ -197,7 +193,7 @@ cdef class StringStore:
         """Save the current state to a directory.
 
         path (unicode or Path): A path to a directory, which will be created if
-            it doesn't exist. Paths may be either strings or `Path`-like objects.
+            it doesn't exist. Paths may be either strings or Path-like objects.
         """
         path = util.ensure_path(path)
         strings = list(self)
@@ -215,7 +211,10 @@ cdef class StringStore:
         path = util.ensure_path(path)
         with path.open('r') as file_:
             strings = ujson.load(file_)
+        prev = list(self)
         self._reset_and_load(strings)
+        for word in prev:
+            self.add(word)
         return self
 
     def to_bytes(self, **exclude):
@@ -224,7 +223,7 @@ cdef class StringStore:
         **exclude: Named attributes to prevent from being serialized.
         RETURNS (bytes): The serialized form of the `StringStore` object.
         """
-        return ujson.dumps(list(self))
+        return json_dumps(list(self))
 
     def from_bytes(self, bytes_data, **exclude):
         """Load state from a binary string.
@@ -234,24 +233,50 @@ cdef class StringStore:
         RETURNS (StringStore): The `StringStore` object.
         """
         strings = ujson.loads(bytes_data)
+        prev = list(self)
         self._reset_and_load(strings)
+        for word in prev:
+            self.add(word)
         return self
 
-    def set_frozen(self, bint is_frozen):
-        # TODO
-        self.is_frozen = is_frozen
-
-    def flush_oov(self):
-        self._oov = PreshMap()
-
-    def _reset_and_load(self, strings, freeze=False):
+    def _reset_and_load(self, strings):
         self.mem = Pool()
         self._map = PreshMap()
-        self._oov = PreshMap()
         self.keys.clear()
+        self.hits.clear()
         for string in strings:
             self.add(string)
-        self.is_frozen = freeze
+
+    def _cleanup_stale_strings(self, excepted):
+        """
+        excepted (list): Strings that should not be removed.
+        RETURNS (keys, strings): Dropped strings and keys that can be dropped from other places
+        """
+        if self.hits.size() == 0:
+            # If we don't have any hits, just skip cleanup
+            return
+
+        cdef vector[hash_t] tmp
+        dropped_strings = []
+        dropped_keys = []
+        for i in range(self.keys.size()):
+            key = self.keys[i]
+            # Here we cannot use __getitem__ because it also set hit.
+            utf8str = <Utf8Str*>self._map.get(key)
+            value = decode_Utf8Str(utf8str)
+            if self.hits.count(key) != 0 or value in excepted:
+                tmp.push_back(key)
+            else:
+                dropped_keys.append(key)
+                dropped_strings.append(value)
+
+        self.keys.swap(tmp)
+        strings = list(self)
+        self._reset_and_load(strings)
+        # Here we have strings but hits to it should be reseted
+        self.hits.clear()
+
+        return dropped_keys, dropped_strings
 
     cdef const Utf8Str* intern_unicode(self, unicode py_string):
         # 0 means missing, but we don't bother offsetting the index.
@@ -266,19 +291,8 @@ cdef class StringStore:
         cdef Utf8Str* value = <Utf8Str*>self._map.get(key)
         if value is not NULL:
             return value
-        value = <Utf8Str*>self._oov.get(key)
-        if value is not NULL:
-            return value
-        if self.is_frozen:
-            # OOV store uses 32 bit hashes. Pretty ugly :(
-            key32 = hash32_utf8(utf8_string, length)
-            # Important: Make the OOV store own the memory. That way it's trivial
-            # to flush them all.
-            value = _allocate(self._oov.mem, <unsigned char*>utf8_string, length)
-            self._oov.set(key32, value)
-            return NULL
-
         value = _allocate(self.mem, <unsigned char*>utf8_string, length)
         self._map.set(key, value)
+        self.hits.insert(key)
         self.keys.push_back(key)
         return value

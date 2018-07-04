@@ -52,12 +52,13 @@ def test_en_models_vectors(example):
     # this isn't a perfect test since this could in principle fail
     # in a sane model as well,
     # but that's very unlikely and a good indicator if something is wrong
-    vector0 = example[0].vector
-    vector1 = example[1].vector
-    vector2 = example[2].vector
-    assert not numpy.array_equal(vector0,vector1)
-    assert not numpy.array_equal(vector0,vector2)
-    assert not numpy.array_equal(vector1,vector2)
+    if example.vocab.vectors_length:
+        vector0 = example[0].vector
+        vector1 = example[1].vector
+        vector2 = example[2].vector
+        assert not numpy.array_equal(vector0,vector1)
+        assert not numpy.array_equal(vector0,vector2)
+        assert not numpy.array_equal(vector1,vector2)
 
 
 @pytest.mark.xfail
@@ -74,3 +75,11 @@ def test_en_models_probs(example):
     assert not prob0 == prob1
     assert not prob0 == prob2
     assert not prob1 == prob2
+
+
+@pytest.mark.models('en')
+def test_no_vectors_similarity(EN):
+    doc1 = EN(u'hallo')
+    doc2 = EN(u'hi')
+    assert doc1.similarity(doc2) > 0
+

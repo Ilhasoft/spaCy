@@ -24,23 +24,20 @@ MOD_NAMES = [
     'spacy.vocab',
     'spacy.attrs',
     'spacy.morphology',
-    'spacy.tagger',
     'spacy.pipeline',
     'spacy.syntax.stateclass',
     'spacy.syntax._state',
+    'spacy.syntax._beam_utils',
     'spacy.tokenizer',
-    'spacy.syntax.parser',
     'spacy.syntax.nn_parser',
-    'spacy.syntax.beam_parser',
     'spacy.syntax.nonproj',
     'spacy.syntax.transition_system',
     'spacy.syntax.arc_eager',
-    'spacy.syntax._parse_features',
     'spacy.gold',
     'spacy.tokens.doc',
     'spacy.tokens.span',
     'spacy.tokens.token',
-    'spacy.cfile',
+    'spacy.tokens._retokenize',
     'spacy.matcher',
     'spacy.syntax.ner',
     'spacy.symbols',
@@ -50,8 +47,8 @@ MOD_NAMES = [
 
 COMPILE_OPTIONS =  {
     'msvc': ['/Ox', '/EHsc'],
-    'mingw32' : ['-O3', '-Wno-strict-prototypes', '-Wno-unused-function'],
-    'other' : ['-O3', '-Wno-strict-prototypes', '-Wno-unused-function']
+    'mingw32' : ['-O2', '-Wno-strict-prototypes', '-Wno-unused-function'],
+    'other' : ['-O2', '-Wno-strict-prototypes', '-Wno-unused-function']
 }
 
 
@@ -64,7 +61,7 @@ LINK_OPTIONS = {
 
 # I don't understand this very well yet. See Issue #267
 # Fingers crossed!
-USE_OPENMP_DEFAULT = '1' if sys.platform != 'darwin' else None
+USE_OPENMP_DEFAULT = '0' if sys.platform != 'darwin' else None
 if os.environ.get('USE_OPENMP', USE_OPENMP_DEFAULT) == '1':
     if sys.platform == 'darwin':
         COMPILE_OPTIONS['other'].append('-fopenmp')
@@ -187,23 +184,18 @@ def setup_package():
             url=about['__uri__'],
             license=about['__license__'],
             ext_modules=ext_modules,
+            scripts=['bin/spacy'],
             install_requires=[
                 'numpy>=1.7',
                 'murmurhash>=0.28,<0.29',
                 'cymem>=1.30,<1.32',
                 'preshed>=1.0.0,<2.0.0',
-                'thinc>=6.7.3,<6.8.0',
+                'thinc>=6.10.1,<6.11.0',
                 'plac<1.0.0,>=0.9.6',
-                'pip>=9.0.0,<10.0.0',
-                'six',
                 'pathlib',
                 'ujson>=1.35',
                 'dill>=0.2,<0.3',
-                'requests>=2.13.0,<3.0.0',
-                'regex==2017.4.5',
-                'ftfy>=4.4.2,<5.0.0',
-                'msgpack-python',
-                'msgpack-numpy'],
+                'regex==2017.4.5'],
             classifiers=[
                 'Development Status :: 5 - Production/Stable',
                 'Environment :: Console',
@@ -214,9 +206,9 @@ def setup_package():
                 'Operating System :: MacOS :: MacOS X',
                 'Operating System :: Microsoft :: Windows',
                 'Programming Language :: Cython',
-                'Programming Language :: Python :: 2.6',
+                'Programming Language :: Python :: 2',
                 'Programming Language :: Python :: 2.7',
-                'Programming Language :: Python :: 3.3',
+                'Programming Language :: Python :: 3',
                 'Programming Language :: Python :: 3.4',
                 'Programming Language :: Python :: 3.5',
                 'Programming Language :: Python :: 3.6',

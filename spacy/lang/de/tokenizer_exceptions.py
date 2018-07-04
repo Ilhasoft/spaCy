@@ -1,8 +1,7 @@
 # coding: utf8
 from __future__ import unicode_literals
 
-from ...symbols import ORTH, LEMMA, TAG, NORM
-from ...deprecated import PRON_LEMMA
+from ...symbols import ORTH, LEMMA, TAG, NORM, PRON_LEMMA
 
 
 _exc = {
@@ -164,7 +163,7 @@ for exc_data in [
     {ORTH: "z.b.", LEMMA: "zum Beispiel"},
     {ORTH: "zzgl.", LEMMA: "zuzüglich"},
     {ORTH: "österr.", LEMMA: "österreichisch", NORM: "österreichisch"}]:
-    _exc[exc_data[ORTH]] = [dict(exc_data)]
+    _exc[exc_data[ORTH]] = [exc_data]
 
 
 for orth in [
@@ -181,4 +180,4 @@ for orth in [
     _exc[orth] = [{ORTH: orth}]
 
 
-TOKENIZER_EXCEPTIONS = dict(_exc)
+TOKENIZER_EXCEPTIONS = _exc

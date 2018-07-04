@@ -5,16 +5,16 @@ import plac
 import platform
 from pathlib import Path
 
+from ._messages import Messages
 from ..compat import path2str
-from .. import about
 from .. import util
+from .. import about
 
 
 @plac.annotations(
     model=("optional: shortcut link of model", "positional", None, str),
-    markdown=("generate Markdown for GitHub issues", "flag", "md", str)
-)
-def info(cmd, model=None, markdown=False):
+    markdown=("generate Markdown for GitHub issues", "flag", "md", str))
+def info(model=None, markdown=False):
     """Print info about spaCy installation. If a model shortcut link is
     speficied as an argument, print model information. Flag --markdown
     prints details in Markdown for easy copy-pasting to GitHub issues.
@@ -26,7 +26,7 @@ def info(cmd, model=None, markdown=False):
             model_path = util.get_data_path() / model
         meta_path = model_path / 'meta.json'
         if not meta_path.is_file():
-            util.prints(meta_path, title="Can't find model meta.json", exits=1)
+            util.prints(meta_path, title=Messages.M020, exits=1)
         meta = util.read_json(meta_path)
         if model_path.resolve() != model_path:
             meta['link'] = path2str(model_path)
