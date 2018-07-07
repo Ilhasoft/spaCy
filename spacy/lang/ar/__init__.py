@@ -14,9 +14,9 @@ from ...attrs import LANG, NORM
 from ...util import update_exc, add_lookups
 
 
-class HindiDefaults(Language.Defaults):
+class ArabicDefaults(Language.Defaults):
     lex_attr_getters = dict(Language.Defaults.lex_attr_getters)
-    lex_attr_getters[LANG] = lambda text: 'hi'
+    lex_attr_getters[LANG] = lambda text: 'ar'
     lex_attr_getters[NORM] = add_lookups(Language.Defaults.lex_attr_getters[NORM], BASE_NORMS)
 
     tokenizer_exceptions = update_exc(BASE_EXCEPTIONS, TOKENIZER_EXCEPTIONS)
@@ -24,8 +24,8 @@ class HindiDefaults(Language.Defaults):
     lemma_lookup = LOOKUP
 
 
-class Hindi(Language):
-    lang = 'hi'
-    Defaults = HindiDefaults
+class Arabic(Language):
+    lang = 'ar'
+    Defaults = ArabicDefaults
 
-__all__ = ['Hindi']
+__all__ = ['Arabic']
