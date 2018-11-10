@@ -16,10 +16,15 @@ _latin = r'[[\p{Ll}||\p{Lu}]&&\p{Latin}]'
 _persian = r'[\p{L}&&\p{Arabic}]'
 _russian_lower = r'[ёа-я]'
 _russian_upper = r'[ЁА-Я]'
+_sinhala = r'[\p{L}&&\p{Sinhala}]'
+_tatar_lower = r'[әөүҗңһ]'
+_tatar_upper = r'[ӘӨҮҖҢҺ]'
+_greek_lower = r'[α-ωάέίόώήύ]'
+_greek_upper = r'[Α-ΩΆΈΊΌΏΉΎ]'
 
-_upper = [_latin_upper, _russian_upper]
-_lower = [_latin_lower, _russian_lower]
-_uncased = [_bengali, _hebrew, _persian]
+_upper = [_latin_upper, _russian_upper, _tatar_upper, _greek_upper]
+_lower = [_latin_lower, _russian_lower, _tatar_lower, _greek_lower]
+_uncased = [_bengali, _hebrew, _persian, _sinhala]
 
 ALPHA = merge_char_classes(_upper + _lower + _uncased)
 ALPHA_LOWER = merge_char_classes(_lower + _uncased)
