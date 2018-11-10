@@ -104,10 +104,13 @@ def read_vectors(vectors_loc):
     vectors_data = numpy.zeros(shape=shape, dtype='f')
     vectors_keys = []
     for i, line in enumerate(tqdm(f)):
-        pieces = line.split()
-        word = pieces.pop(0)
-        vectors_data[i] = numpy.asarray(pieces, dtype='f')
-        vectors_keys.append(word)
+        try:
+            pieces = line.split()
+            word = pieces.pop(0)
+            vectors_data[i] = numpy.asarray(pieces, dtype='f')
+            vectors_keys.append(word)
+        except:
+            pass
     return vectors_data, vectors_keys
 
 
